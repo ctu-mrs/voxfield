@@ -157,6 +157,7 @@ NpTsdfServer::NpTsdfServer(
         ros::Duration(publish_map_every_n_sec), &NpTsdfServer::publishMapEvent,
         this);
   }
+
 }
 
 void NpTsdfServer::getServerConfigFromRosParam(
@@ -278,6 +279,9 @@ void NpTsdfServer::processPointCloudMessageAndInsert(
     }
   }
 
+  //TODO Michal
+  bool is_dense = pointcloud_msg->is_dense;
+
   Pointcloud points_C;
   Pointcloud normals_C;
   Colors colors;
@@ -383,7 +387,7 @@ void NpTsdfServer::processPointCloudMessageAndInsert(
   ros::WallTime start = ros::WallTime::now();
   // non-projective TSDF integration
   integratePointcloud(
-      T_G_C_refined, points_C, normals_C, colors, is_freespace_pointcloud);
+      T_G_C_refined, points_C, normals_C, colors,is_dense, is_freespace_pointcloud);
   ros::WallTime end = ros::WallTime::now();
   if (verbose_) {
     ROS_INFO(
@@ -456,12 +460,11 @@ bool NpTsdfServer::getNextPointcloudFromQueue(
     queue->pop();
     return true;
   } else {
-    ROS_ERROR_THROTTLE(1.0, "Unable to find transform from [ptcld frame] %s to [world frame] %s", (*pointcloud_msg)->header.frame_id.c_str(), world_frame_);
+    ROS_ERROR_THROTTLE(1.0, "Unable to find transform from [ptcld frame] %s to [world frame] %s", (*pointcloud_msg)->header.frame_id.c_str(), world_frame_.c_str());
     if (queue->size() >= kMaxQueueSize) {
       ROS_ERROR_THROTTLE(
           1.0,
-          "Input pointcloud queue getting too long! Dropping "
-          "some pointclouds.");
+          "Input pointcloud queue getting too long! Dropping some pointclouds..., queue size: %d [max: %d]",int(queue->size()), int(kMaxQueueSize));
       while (queue->size() >= kMaxQueueSize) {
         queue->pop();
       }
@@ -531,6 +534,7 @@ void NpTsdfServer::insertFreespacePointcloud(
 void NpTsdfServer::integratePointcloud(
     const Transformation& T_G_C, const Pointcloud& points_C,
     const Pointcloud& normals_C, const Colors& colors,
+    const bool is_dense,
     const bool is_freespace_pointcloud) {
   CHECK_EQ(points_C.size(), colors.size());
   CHECK_EQ(points_C.size(), normals_C.size());

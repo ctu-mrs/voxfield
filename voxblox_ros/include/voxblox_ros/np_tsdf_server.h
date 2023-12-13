@@ -61,6 +61,7 @@ class NpTsdfServer {
   void integratePointcloud(
       const Transformation& T_G_C, const Pointcloud& points_C,
       const Pointcloud& normals_C, const Colors& colors,
+      const bool is_dense,
       const bool is_freespace_pointcloud = false);
   virtual void newPoseCallback(const Transformation& /*new_pose*/) {
     // Do nothing.
