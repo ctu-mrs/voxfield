@@ -451,17 +451,17 @@ bool NpTsdfServer::getNextPointcloudFromQueue(
   *pointcloud_msg = queue->front();
 
   if (transformer_.lookupTransform(
-          sensor_frame_, world_frame_, (*pointcloud_msg)->header.stamp,
+          (*pointcloud_msg)->header.frame_id, world_frame_, (*pointcloud_msg)->header.stamp,
           T_G_C)) {
     queue->pop();
     return true;
   } else {
+    ROS_ERROR_THROTTLE(1.0, "Unable to find transform from [ptcld frame] %s to [world frame] %s", (*pointcloud_msg)->header.frame_id.c_str(), world_frame_);
     if (queue->size() >= kMaxQueueSize) {
       ROS_ERROR_THROTTLE(
-          60,
+          1.0,
           "Input pointcloud queue getting too long! Dropping "
-          "some pointclouds. Either unable to look up transform "
-          "timestamps or the processing is taking too long.");
+          "some pointclouds.");
       while (queue->size() >= kMaxQueueSize) {
         queue->pop();
       }
