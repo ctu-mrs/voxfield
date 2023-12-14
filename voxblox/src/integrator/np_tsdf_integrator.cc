@@ -166,13 +166,19 @@ float NpTsdfIntegratorBase::computeDistance(
 
 // Thread safe.
 // Only the first part of computeVoxelWeight
-float NpTsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
+float NpTsdfIntegratorBase::getVoxelWeight(const Point& point_C, const bool is_dense) const {
   if (config_.use_const_weight) {
     return 1.0f;
   }
   const FloatingPoint dist = std::abs(point_C.norm());
   if (dist > kEpsilon) {
-    return 1.0f / std::pow(dist, config_.weight_reduction_exp);
+    if(is_dense){
+      return 1.0f / std::pow(dist, config_.weight_reduction_exp_is_dense);
+    }
+    else{
+
+      return 1.0f / std::pow(dist, config_.weight_reduction_exp_is_not_dense);
+    }
   }
   return 0.0f;
 }
@@ -180,7 +186,7 @@ float NpTsdfIntegratorBase::getVoxelWeight(const Point& point_C) const {
 // Compute the weight for current measurement
 float NpTsdfIntegratorBase::computeVoxelWeight(
     const Point& point_C, const float sdf, const bool with_init_weight,
-    const float init_weight) const {
+    const float init_weight, const bool is_dense) const {
   float weight = 1.0;
   if (with_init_weight) {
     weight = init_weight;
@@ -189,7 +195,11 @@ float NpTsdfIntegratorBase::computeVoxelWeight(
     // (according to sensor noise models).
     // Also Independent of sdf
     if (!config_.use_const_weight) {
-      weight /= std::pow(point_C.norm(), config_.weight_reduction_exp);
+      if(is_dense){
+        weight /= std::pow(point_C.norm(), config_.weight_reduction_exp_is_dense);
+      }else{
+        weight /= std::pow(point_C.norm(), config_.weight_reduction_exp_is_not_dense);
+      }
     }
   }
 
@@ -277,7 +287,8 @@ void NpTsdfIntegratorBase::updateTsdfVoxel(
     const Transformation& T_G_C, const Point& origin, const Point& point_C,
     const Point& point_G, const Ray& normal_C, const Ray& normal_G,
     const GlobalIndex& global_voxel_idx, const Color& color,
-    const float init_weight, TsdfVoxel* tsdf_voxel) {
+    const float init_weight, TsdfVoxel* tsdf_voxel,
+    const bool is_dense) {
   DCHECK(tsdf_voxel != nullptr);
 
   const Point voxel_center =
@@ -339,7 +350,7 @@ void NpTsdfIntegratorBase::updateTsdfVoxel(
   if (init_weight > 0)
     with_init_weight = true;
   float weight =
-      computeVoxelWeight(point_C, sdf, with_init_weight, init_weight);
+      computeVoxelWeight(point_C, sdf, with_init_weight, init_weight, is_dense);
   // it is possible to have weights very close to zero, due to the limited
   // precision of floating points dividing by this small value can cause nans
   if (weight < kFloatEpsilon) {
@@ -368,6 +379,7 @@ void NpTsdfIntegratorBase::updateTsdfVoxel(
 void SimpleNpTsdfIntegrator::integratePointCloud(
     const Transformation& T_G_C, const Pointcloud& points_C,
     const Pointcloud& normals_C, const Colors& colors,
+    const bool is_dense,
     const bool freespace_points) {
   timing::Timer integrate_timer("integrate_np_tsdf/simple");
   CHECK_EQ(points_C.size(), colors.size());
@@ -379,7 +391,7 @@ void SimpleNpTsdfIntegrator::integratePointCloud(
   for (size_t i = 0; i < config_.integrator_threads; ++i) {
     integration_threads.emplace_back(
         &SimpleNpTsdfIntegrator::integrateFunction, this, T_G_C, points_C,
-        normals_C, colors, freespace_points, index_getter.get());
+        normals_C, colors,is_dense, freespace_points, index_getter.get());
   }
 
   for (std::thread& thread : integration_threads) {
@@ -395,6 +407,7 @@ void SimpleNpTsdfIntegrator::integratePointCloud(
 void SimpleNpTsdfIntegrator::integrateFunction(
     const Transformation& T_G_C, const Pointcloud& points_C,
     const Pointcloud& normals_C, const Colors& colors,
+    const bool is_dense,
     const bool freespace_points, ThreadSafeIndex* index_getter) {
   DCHECK(index_getter != nullptr);
 
@@ -425,7 +438,7 @@ void SimpleNpTsdfIntegrator::integrateFunction(
           allocateStorageAndGetVoxelPtr(global_voxel_idx, &block, &block_idx);
       updateTsdfVoxel(
           T_G_C, origin, point_C, point_G, normal_C, normal_G, global_voxel_idx,
-          color, 0.0, voxel);
+          color, 0.0, voxel, is_dense);
     }
   }
 }
@@ -435,6 +448,7 @@ void SimpleNpTsdfIntegrator::integrateFunction(
 void MergedNpTsdfIntegrator::integratePointCloud(
     const Transformation& T_G_C, const Pointcloud& points_C,
     const Pointcloud& normals_C, const Colors& colors,
+    const bool is_dense,
     const bool freespace_points) {
   timing::Timer integrate_timer("integrate_np_tsdf/merged");
   CHECK_EQ(points_C.size(), colors.size());
@@ -461,7 +475,7 @@ void MergedNpTsdfIntegrator::integratePointCloud(
   timing::Timer nonclear_timer("integrate_np_tsdf/merged/nonclear");
   integrateRays(
       T_G_C, points_C, normals_C, colors, config_.enable_anti_grazing, false,
-      voxel_map, clear_map);
+      voxel_map, clear_map, is_dense);
   nonclear_timer.Stop();
 
   if (config_.merge_with_clear) {
@@ -469,7 +483,7 @@ void MergedNpTsdfIntegrator::integratePointCloud(
     // integrate rays for clearing voxels (away from the surface)
     integrateRays(
         T_G_C, points_C, normals_C, colors, config_.enable_anti_grazing, true,
-        voxel_map, clear_map);
+        voxel_map, clear_map, is_dense);
     clear_timer.Stop();
   }
   integrate_timer.Stop();
@@ -513,20 +527,20 @@ void MergedNpTsdfIntegrator::integrateRays(
     const Pointcloud& normals_C, const Colors& colors, bool enable_anti_grazing,
     bool clearing_ray,
     const LongIndexHashMapType<AlignedVector<size_t>>::type& voxel_map,
-    const LongIndexHashMapType<AlignedVector<size_t>>::type& clear_map) {
+    const LongIndexHashMapType<AlignedVector<size_t>>::type& clear_map, const bool is_dense) {
   // if only 1 thread just do function call, otherwise spawn threads
   if (config_.integrator_threads == 1) {
     constexpr size_t thread_idx = 0;
     integrateVoxels(
         T_G_C, points_C, normals_C, colors, enable_anti_grazing, clearing_ray,
-        voxel_map, clear_map, thread_idx);
+        voxel_map, clear_map, thread_idx, is_dense);
   } else {
     std::list<std::thread> integration_threads;
     for (size_t i = 0; i < config_.integrator_threads; ++i) {
       integration_threads.emplace_back(
           &MergedNpTsdfIntegrator::integrateVoxels, this, T_G_C, points_C,
           normals_C, colors, enable_anti_grazing, clearing_ray, voxel_map,
-          clear_map, i);
+          clear_map, i, is_dense);
     }
     for (std::thread& thread : integration_threads) {
       thread.join();
@@ -544,7 +558,7 @@ void MergedNpTsdfIntegrator::integrateVoxels(
     bool clearing_ray,
     const LongIndexHashMapType<AlignedVector<size_t>>::type& voxel_map,
     const LongIndexHashMapType<AlignedVector<size_t>>::type& clear_map,
-    size_t thread_idx) {
+    size_t thread_idx, const bool is_dense) {
   LongIndexHashMapType<AlignedVector<size_t>>::type::const_iterator it;
   size_t map_size;
   if (clearing_ray) {
@@ -559,7 +573,7 @@ void MergedNpTsdfIntegrator::integrateVoxels(
     if (((i + thread_idx + 1) % config_.integrator_threads) == 0) {
       integrateVoxel(
           T_G_C, points_C, normals_C, colors, enable_anti_grazing, clearing_ray,
-          *it, voxel_map);
+          *it, voxel_map, is_dense);
     }
     ++it;
   }
@@ -569,7 +583,7 @@ void MergedNpTsdfIntegrator::integrateVoxel(
     const Transformation& T_G_C, const Pointcloud& points_C,
     const Pointcloud& normals_C, const Colors& colors, bool enable_anti_grazing,
     bool clearing_ray, const std::pair<GlobalIndex, AlignedVector<size_t>>& kv,
-    const LongIndexHashMapType<AlignedVector<size_t>>::type& voxel_map) {
+    const LongIndexHashMapType<AlignedVector<size_t>>::type& voxel_map, const bool is_dense) {
   if (kv.second.empty()) {
     return;
   }
@@ -585,7 +599,7 @@ void MergedNpTsdfIntegrator::integrateVoxel(
     const Ray& normal_C = normals_C[pt_idx];
     const Color& color = colors[pt_idx];
     // only the reduction part
-    const float point_weight = getVoxelWeight(point_C);
+    const float point_weight = getVoxelWeight(point_C, is_dense);
     if (point_weight < kEpsilon) {
       continue;
     }
@@ -634,7 +648,7 @@ void MergedNpTsdfIntegrator::integrateVoxel(
 
     updateTsdfVoxel(
         T_G_C, origin, merged_point_C, merged_point_G, merged_normal_C,
-        merged_normal_G, global_voxel_idx, merged_color, merged_weight, voxel);
+        merged_normal_G, global_voxel_idx, merged_color, merged_weight, voxel, is_dense);
   }
 }
 
@@ -643,6 +657,7 @@ void MergedNpTsdfIntegrator::integrateVoxel(
 void FastNpTsdfIntegrator::integratePointCloud(
     const Transformation& T_G_C, const Pointcloud& points_C,
     const Pointcloud& normals_C, const Colors& colors,
+    const bool is_dense,
     const bool freespace_points) {
   timing::Timer integrate_timer("integrate_np_tsdf/fast");
   CHECK_EQ(points_C.size(), colors.size());
@@ -664,7 +679,7 @@ void FastNpTsdfIntegrator::integratePointCloud(
   for (size_t i = 0; i < config_.integrator_threads; ++i) {
     integration_threads.emplace_back(
         &FastNpTsdfIntegrator::integrateFunction, this, T_G_C, points_C,
-        normals_C, colors, freespace_points, index_getter.get());
+        normals_C, colors, is_dense, freespace_points, index_getter.get());
   }
 
   for (std::thread& thread : integration_threads) {
@@ -681,6 +696,7 @@ void FastNpTsdfIntegrator::integratePointCloud(
 void FastNpTsdfIntegrator::integrateFunction(
     const Transformation& T_G_C, const Pointcloud& points_C,
     const Pointcloud& normals_C, const Colors& colors,
+    const bool is_dense,
     const bool freespace_points, ThreadSafeIndex* index_getter) {
   DCHECK(index_getter != nullptr);
 
@@ -741,7 +757,7 @@ void FastNpTsdfIntegrator::integrateFunction(
 
       updateTsdfVoxel(
           T_G_C, origin, point_C, point_G, normal_C, normal_G, global_voxel_idx,
-          color, 0.0, voxel);
+          color, 0.0, voxel, is_dense);
     }
   }
 }
@@ -757,7 +773,9 @@ std::string NpTsdfIntegratorBase::Config::print() const {
   ss << " - min_ray_length_m:                          " << min_ray_length_m << "\n"; // NOLINT
   ss << " - max_ray_length_m:                          " << max_ray_length_m << "\n"; // NOLINT
   ss << " - use_const_weight:                          " << use_const_weight << "\n"; // NOLINT
-  ss << " - weight_reduction_exp:                      " << weight_reduction_exp << "\n"; // NOLINT
+  ss << " - weight_reduction_exp (unused):                      " << weight_reduction_exp << "\n"; // NOLINT
+  ss << " - weight_reduction_exp_is_dense:                      " << weight_reduction_exp_is_dense << "\n"; // NOLINT
+  ss << " - weight_reduction_exp_is_not_dense:                      " << weight_reduction_exp_is_not_dense << "\n"; // NOLINT
   ss << " - allow_clear:                               " << allow_clear << "\n"; // NOLINT
   ss << " - use_weight_dropoff:                        " << use_weight_dropoff << "\n"; // NOLINT
   ss << " - weight_dropoff_epsilon:                    " << weight_dropoff_epsilon << "\n"; // NOLINT

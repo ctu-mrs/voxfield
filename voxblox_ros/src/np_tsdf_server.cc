@@ -539,7 +539,7 @@ void NpTsdfServer::integratePointcloud(
   CHECK_EQ(points_C.size(), colors.size());
   CHECK_EQ(points_C.size(), normals_C.size());
   tsdf_integrator_->integratePointCloud(
-      T_G_C, points_C, normals_C, colors, is_freespace_pointcloud);
+      T_G_C, points_C, normals_C, colors, is_dense, is_freespace_pointcloud);
 }
 
 void NpTsdfServer::publishAllUpdatedTsdfVoxels() {

@@ -189,6 +189,14 @@ inline NpTsdfIntegratorBase::Config getNpTsdfIntegratorConfigFromRosParam(
       integrator_config.weight_reduction_exp,  // NOLINT
       integrator_config.weight_reduction_exp);
   nh_private.param(
+      "weight_reduction_exp_is_dense",
+      integrator_config.weight_reduction_exp_is_dense,  // NOLINT
+      integrator_config.weight_reduction_exp_is_dense);
+  nh_private.param(
+      "weight_reduction_exp_is_not_dense",
+      integrator_config.weight_reduction_exp_is_not_dense,  // NOLINT
+      integrator_config.weight_reduction_exp_is_not_dense);
+  nh_private.param(
       "use_weight_dropoff", integrator_config.use_weight_dropoff,
       integrator_config.use_weight_dropoff);
   nh_private.param(

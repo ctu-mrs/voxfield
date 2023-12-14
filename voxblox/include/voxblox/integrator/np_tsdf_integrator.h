@@ -57,6 +57,8 @@ class NpTsdfIntegratorBase {
     // if true, then we apply weight reduction
     bool use_const_weight = false;
     float weight_reduction_exp = 1.0f;
+    float weight_reduction_exp_is_dense = 1.0f;
+    float weight_reduction_exp_is_not_dense = 1.0f;
     bool allow_clear = true;
     bool use_weight_dropoff = true;
     // if negative, then the value would be the ratio of voxel size
@@ -105,6 +107,7 @@ class NpTsdfIntegratorBase {
   virtual void integratePointCloud(
       const Transformation& T_G_C, const Pointcloud& points_C,
       const Pointcloud& normals_C, const Colors& colors,
+      const bool is_dense,
       const bool freespace_points = false) = 0;
 
   /// Returns a CONST ref of the config.
@@ -162,7 +165,8 @@ class NpTsdfIntegratorBase {
       const Transformation& T_G_C, const Point& origin, const Point& point_C,
       const Point& point_G, const Ray& normal_C, const Ray& normal_G,
       const GlobalIndex& global_voxel_idx, const Color& color,
-      const float init_weight, TsdfVoxel* tsdf_voxel);
+      const float init_weight, TsdfVoxel* tsdf_voxel,
+      const bool is_dense);
   /// Update tsdf_voxel's truncated signed distance and weight value
   void updateTsdfVoxelValue(
       TsdfVoxel* voxel, const float sdf, const float weight,
@@ -180,11 +184,11 @@ class NpTsdfIntegratorBase {
   /// Calculates measurment weight (confidence)
   float computeVoxelWeight(
       const Point& point_C, const float sdf, const bool with_init_weight,
-      const float init_weight) const;  // NOLINT
+      const float init_weight, const bool is_dense) const;  // NOLINT
 
   /// Thread safe.
   // only contain the weight reduction part according to distance and sensor)
-  float getVoxelWeight(const Point& point_C) const;
+  float getVoxelWeight(const Point& point_C, const bool is_dense) const;
 
   Config config_;
 
@@ -246,11 +250,13 @@ class SimpleNpTsdfIntegrator : public NpTsdfIntegratorBase {
   void integratePointCloud(
       const Transformation& T_G_C, const Pointcloud& points_C,
       const Pointcloud& normals_C, const Colors& colors,
+      const bool is_dense,
       const bool freespace_points = false);
 
   void integrateFunction(
       const Transformation& T_G_C, const Pointcloud& points_C,
       const Pointcloud& normals_C, const Colors& colors,
+      const bool is_dense,
       const bool freespace_points, ThreadSafeIndex* index_getter);
 };
 /**
@@ -268,6 +274,7 @@ class MergedNpTsdfIntegrator : public NpTsdfIntegratorBase {
   void integratePointCloud(
       const Transformation& T_G_C, const Pointcloud& points_C,
       const Pointcloud& normals_C, const Colors& colors,
+      const bool is_dense,
       const bool freespace_points = false);
 
  protected:
@@ -282,7 +289,8 @@ class MergedNpTsdfIntegrator : public NpTsdfIntegratorBase {
       const Pointcloud& normals_C, const Colors& colors,
       bool enable_anti_grazing, bool clearing_ray,
       const std::pair<GlobalIndex, AlignedVector<size_t>>& kv,
-      const LongIndexHashMapType<AlignedVector<size_t>>::type& voxel_map);
+      const LongIndexHashMapType<AlignedVector<size_t>>::type& voxel_map,
+      const bool is_dense);
 
   void integrateVoxels(
       const Transformation& T_G_C, const Pointcloud& points_C,
@@ -290,14 +298,14 @@ class MergedNpTsdfIntegrator : public NpTsdfIntegratorBase {
       bool enable_anti_grazing, bool clearing_ray,
       const LongIndexHashMapType<AlignedVector<size_t>>::type& voxel_map,
       const LongIndexHashMapType<AlignedVector<size_t>>::type& clear_map,
-      size_t thread_idx);
+      size_t thread_idx, const bool is_dense);
 
   void integrateRays(
       const Transformation& T_G_C, const Pointcloud& points_C,
       const Pointcloud& normals_C, const Colors& colors,
       bool enable_anti_grazing, bool clearing_ray,
       const LongIndexHashMapType<AlignedVector<size_t>>::type& voxel_map,
-      const LongIndexHashMapType<AlignedVector<size_t>>::type& clear_map);
+      const LongIndexHashMapType<AlignedVector<size_t>>::type& clear_map, const bool is_dense);
 };
 
 /**
@@ -322,11 +330,13 @@ class FastNpTsdfIntegrator : public NpTsdfIntegratorBase {
   void integrateFunction(
       const Transformation& T_G_C, const Pointcloud& points_C,
       const Pointcloud& normals_C, const Colors& colors,
+      const bool is_dense,
       const bool freespace_points, ThreadSafeIndex* index_getter);
 
   void integratePointCloud(
       const Transformation& T_G_C, const Pointcloud& points_C,
       const Pointcloud& normals_C, const Colors& colors,
+      const bool is_dense,
       const bool freespace_points = false);
 
  private:
